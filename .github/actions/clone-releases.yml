@@ -1,0 +1,52 @@
+name: Clone Releases
+description: Clone releases from a public source repo to this repo
+
+inputs:
+  src_repo:
+    description: Source repo (owner/repo)
+    required: true
+  dry_run:
+    description: If true, only log what would be created
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Clone releases
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SRC_REPO: ${{ inputs.src_repo }}
+        DEST_REPO: ${{ github.repository }}
+        DRY_RUN: ${{ inputs.dry_run }}
+      run: |
+        set -euo pipefail
+
+        dest_tags=$(gh release list --repo "$DEST_REPO" --limit 1000 --json tagName -q '.[].tagName')
+
+        gh release list --repo "$SRC_REPO" --limit 1000 --json tagName -q '.[].tagName' | while read -r tag; do
+          if echo "$dest_tags" | grep -qxF "$tag"; then
+            echo "Skipping $tag (exists)"
+            continue
+          fi
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "[dry-run] Would create $tag"
+            continue
+          fi
+
+          echo "Creating $tag"
+          release=$(gh release view "$tag" --repo "$SRC_REPO" --json name,body,isDraft,isPrerelease)
+          name=$(echo "$release" | jq -r '.name // empty')
+          body=$(echo "$release" | jq -r '.body // empty')
+
+          flags=()
+          [[ $(echo "$release" | jq -r '.isDraft') == "true" ]] && flags+=(--draft)
+          [[ $(echo "$release" | jq -r '.isPrerelease') == "true" ]] && flags+=(--prerelease)
+
+          gh release create "$tag" --repo "$DEST_REPO" \
+            --title "${name:-$tag}" --notes "${body:-}" \
+            "${flags[@]}" || echo "::error::Failed to create $tag"
+        done
+
