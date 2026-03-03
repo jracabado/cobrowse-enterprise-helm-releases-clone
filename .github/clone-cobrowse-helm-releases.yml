@@ -3,7 +3,7 @@ name: Clone Releases
 
 on:
   schedule:
-    - cron: "0 */12 * * *"
+    - cron: "* * * * *"
   workflow_dispatch:
 
 jobs:
